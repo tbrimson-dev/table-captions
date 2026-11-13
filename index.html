@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-labels="names">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f1416">
+<title>Table Captions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: one screen. Slim control bar on top, the caption feed fills the rest, newest line at the bottom at full brightness. */
+:root {
+  --bg: #0f1416; --surface: #182024; --surface-2: #212b30; --fg: #f3f6f4; --muted: #8fa3a0; --rule: #2a363c;
+  --go: #2fb37a; --go-fg: #06140d; --stop: #e05656; --stop-fg: #1a0505; --warn: #ffb547;
+  --s0: #ffc857; --s1: #6cc4ff; --s2: #7ee0a8; --s3: #ff8fab; --s4: #c3a6ff; --s5: #ff9f5a;
+  --font: "Atkinson Hyperlegible", "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --cap-size: 44px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f6f7f5; --surface: #ffffff; --surface-2: #eef1ef; --fg: #111816; --muted: #5b6b68; --rule: #dde3e0;
+    --go: #1f8f5f; --go-fg: #ffffff; --stop: #c43c3c; --stop-fg: #ffffff; --warn: #9a6a00;
+    --s0: #9a6a00; --s1: #0a6fb3; --s2: #11804a; --s3: #c2325a; --s4: #6b47c9; --s5: #b85410;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f6f7f5; --surface: #ffffff; --surface-2: #eef1ef; --fg: #111816; --muted: #5b6b68; --rule: #dde3e0;
+  --go: #1f8f5f; --go-fg: #ffffff; --stop: #c43c3c; --stop-fg: #ffffff; --warn: #9a6a00;
+  --s0: #9a6a00; --s1: #0a6fb3; --s2: #11804a; --s3: #c2325a; --s4: #6b47c9; --s5: #b85410;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; overscroll-behavior: none; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 17px;
+  display: flex; flex-direction: column; overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { opacity: .55; cursor: default; }
+:focus-visible { outline: 3px solid var(--s1); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+/* Control bar */
+.bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px;
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--surface); border-bottom: 1px solid var(--rule);
+}
+.status { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 220px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+  background: var(--surface-2); font-weight: 700; font-size: 15px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap;
+}
+.pill .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.pill[data-state="live"] .dot { background: var(--go); box-shadow: 0 0 0 4px color-mix(in srgb, var(--go) 25%, transparent); }
+.pill[data-state="connecting"] .dot, .pill[data-state="reconnecting"] .dot, .pill[data-state="saving"] .dot { background: var(--warn); animation: blink 1s infinite; }
+.pill[data-state="error"] .dot { background: var(--stop); }
+.pill[data-state="demo"] .dot, .pill[data-state="replay"] .dot { background: var(--s4); }
+@keyframes blink { 50% { opacity: .3; } }
+.rec {
+  font-weight: 700; font-size: 14px; letter-spacing: .08em; color: var(--stop);
+  border: 2px solid var(--stop); border-radius: 6px; padding: 3px 8px; white-space: nowrap;
+}
+.meter { flex: 0 1 120px; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0%; background: var(--go); transition: width 80ms linear; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.btn {
+  min-height: 48px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--rule);
+  background: var(--surface-2); font-weight: 700; font-size: 16px;
+}
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn.icon { min-width: 48px; padding: 0 12px; }
+.btn.primary { background: var(--go); color: var(--go-fg); border-color: transparent; min-width: 170px; font-size: 18px; }
+.btn.primary[data-running="true"] { background: var(--stop); color: var(--stop-fg); }
+
+/* Notice */
+.notice {
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: color-mix(in srgb, var(--warn) 16%, var(--bg)); border-bottom: 1px solid var(--rule);
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 16px;
+}
+.notice[data-kind="error"] { background: color-mix(in srgb, var(--stop) 18%, var(--bg)); }
+.notice p { margin: 0; flex: 1 1 280px; }
+.linkbtn { background: none; border: 0; padding: 4px 0; text-decoration: underline; font-weight: 700; }
+
+/* Caption feed */
+.feed {
+  flex: 1; overflow-y: auto; overscroll-behavior: contain; position: relative;
+  padding-block: 24px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: calc(var(--cap-size) * .55);
+}
+.feed::before { content: ""; flex: 1; }
+.line {
+  --spk: var(--s0);
+  border-left: 6px solid var(--spk); padding-left: 18px; max-width: 1400px; min-width: 0;
+  opacity: .72; transition: opacity .3s;
+}
+.line.latest, .line.interim { opacity: 1; }
+.who {
+  background: none; border: 0; padding: 0; margin: 0 0 4px; color: var(--spk);
+  font-weight: 700; font-size: max(16px, calc(var(--cap-size) * .42)); letter-spacing: .05em; text-transform: uppercase;
+}
+.said { margin: 0; font-size: var(--cap-size); line-height: 1.28; overflow-wrap: anywhere; }
+.line.interim .said { color: var(--muted); }
+:root[data-labels="colours"] .who, :root[data-labels="off"] .who { display: none; }
+:root[data-labels="off"] .line { border-left-color: var(--rule); }
+.examples-tag, .divider {
+  align-self: flex-start; font-size: 14px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); border: 1px dashed var(--rule); padding: 6px 10px; border-radius: 8px;
+}
+.jump {
+  position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  background: var(--fg); color: var(--bg); border: 0; border-radius: 999px; padding: 14px 20px; font-weight: 700; font-size: 17px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.35);
+}
+
+/* Settings sheet */
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 20; display: flex; justify-content: flex-end; }
+.sheet {
+  width: min(540px, 100%); height: 100%; overflow-y: auto; background: var(--surface); border-left: 1px solid var(--rule);
+  padding-block: calc(20px + env(safe-area-inset-top, 0px)) calc(28px + env(safe-area-inset-bottom, 0px));
+  padding-left: 24px; padding-right: max(24px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 26px;
+}
+.sheet header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.sheet h2 { margin: 0; font-size: 26px; }
+.sheet h3 { margin: 6px 0 -10px; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--rule); padding-bottom: 8px; }
+.field { display: flex; flex-direction: column; gap: 8px; }
+.field > label, .field > .label { font-weight: 700; font-size: 15px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.field .hint { margin: 0; font-size: 15px; color: var(--muted); line-height: 1.45; }
+.field .hint a { color: var(--s1); }
+.input, select.input, textarea.input {
+  min-height: 50px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--rule); background: var(--bg); width: 100%; min-width: 0;
+}
+textarea.input { padding: 12px 14px; min-height: 92px; resize: vertical; line-height: 1.4; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row .input { flex: 1; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; align-self: flex-start; }
+.seg button { min-height: 48px; padding: 0 18px; border: 0; background: var(--bg); font-weight: 700; }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+input[type="range"] { width: 100%; accent-color: var(--go); min-height: 40px; }
+input[type="file"] { max-width: 100%; }
+.names { display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: center; }
+.names .swatch { width: 14px; height: 14px; border-radius: 50%; }
+.danger { color: var(--stop); border-color: color-mix(in srgb, var(--stop) 50%, var(--rule)); }
+
+@media (max-width: 640px) {
+  .btn.primary { min-width: 0; flex: 1; }
+  .controls { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="status">
+    <span class="pill" id="pill" data-state="off"><span class="dot"></span><span id="pillText">Off</span></span>
+    <span class="rec" id="recBadge" title="Saving a recording" hidden>REC</span>
+    <div class="meter" title="Sound level" aria-hidden="true"><i id="meterFill"></i></div>
+  </div>
+  <div class="controls">
+    <button class="btn icon" id="smaller" type="button" aria-label="Smaller text">A−</button>
+    <button class="btn icon" id="bigger" type="button" aria-label="Bigger text">A+</button>
+    <button class="btn" id="fullBtn" type="button">Full screen</button>
+    <button class="btn" id="settingsBtn" type="button">Settings</button>
+    <button class="btn primary" id="startBtn" type="button" data-running="false">Start captions</button>
+  </div>
+</div>
+
+<div class="notice" id="notice" hidden>
+  <p id="noticeText"></p>
+  <button class="linkbtn" id="noticeAction" type="button" hidden></button>
+</div>
+
+<main class="feed" id="feed" aria-label="Live captions">
+  <article class="line interim" id="interim" hidden>
+    <button class="who" type="button" tabindex="-1"></button>
+    <p class="said"></p>
+  </article>
+</main>
+<button class="jump" id="jumpBtn" type="button" hidden>Jump to latest</button>
+
+<div class="scrim" id="scrim" hidden>
+  <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <header>
+      <h2 id="settingsTitle">Settings</h2>
+      <button class="btn" id="closeSettings" type="button">Done</button>
+    </header>
+
+    <h3>Set up</h3>
+    <div class="field">
+      <label for="keyInput">Deepgram API key</label>
+      <div class="row">
+        <input class="input" id="keyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key">
+        <button class="btn" id="showKey" type="button">Show</button>
+      </div>
+      <p class="hint">Create one at <a href="https://console.deepgram.com" target="_blank" rel="noopener">console.deepgram.com</a>. It's saved on this tablet only.</p>
+    </div>
+
+    <div class="field">
+      <label for="micSelect">Microphone</label>
+      <div class="row">
+        <select class="input" id="micSelect"><option value="">Default microphone</option></select>
+        <button class="btn" id="refreshMics" type="button">Refresh</button>
+      </div>
+      <p class="hint">Plug in the table mic before starting. On Android a USB mic usually becomes the default on its own. Mic names appear after the first Start.</p>
+    </div>
+
+    <div class="field">
+      <span class="label" id="filterLabel">Background noise filter</span>
+      <div class="seg" role="group" aria-labelledby="filterLabel">
+        <button type="button" id="filterOn">On</button>
+        <button type="button" id="filterOff">Off</button>
+      </div>
+      <p class="hint">The tablet's own noise clean-up. Try both at your table; Off sometimes gives the caption service a truer signal. A saved recording keeps whichever was used.</p>
+    </div>
+
+    <div class="field">
+      <label for="termsInput">Names and words to listen for</label>
+      <textarea class="input" id="termsInput" spellcheck="false" placeholder="One per line, such as family names, pets and places"></textarea>
+      <p class="hint">Helps with names the service would otherwise mishear. Up to 50.</p>
+    </div>
+
+    <h3>Reading</h3>
+    <div class="field">
+      <label for="sizeRange">Caption size <span id="sizeVal"></span></label>
+      <input id="sizeRange" type="range" min="24" max="88" step="4">
+    </div>
+
+    <div class="field">
+      <span class="label" id="steadyLabel">Words on screen</span>
+      <div class="seg" role="group" aria-labelledby="steadyLabel">
+        <button type="button" id="steadyOff">As they're heard</button>
+        <button type="button" id="steadyOn">Settled only</button>
+      </div>
+      <p class="hint">"As they're heard" is quickest but words can change as the service catches up. "Settled only" waits about a second and never rewrites.</p>
+    </div>
+
+    <div class="field">
+      <span class="label" id="labelsLabel">Who's speaking</span>
+      <div class="seg" role="group" aria-labelledby="labelsLabel">
+        <button type="button" id="labelsNames">Names</button>
+        <button type="button" id="labelsColours">Colours only</button>
+        <button type="button" id="labelsOff">Off</button>
+      </div>
+      <p class="hint">Telling voices apart from one mic is the least reliable part. If the labels are wrong more often than right, switch them off and keep the words.</p>
+      <div class="names" id="names"></div>
+      <p class="hint">Voices are numbered in the order they're heard. Numbering starts over after a reconnect or restart.</p>
+    </div>
+
+    <div class="field">
+      <span class="label" id="themeLabel">Colours</span>
+      <div class="seg" role="group" aria-labelledby="themeLabel">
+        <button type="button" id="themeDark">Dark</button>
+        <button type="button" id="themeLight">Light</button>
+      </div>
+    </div>
+
+    <h3>Testing</h3>
+    <div class="field">
+      <span class="label" id="recLabel">Save recording</span>
+      <div class="seg" role="group" aria-labelledby="recLabel">
+        <button type="button" id="recOff">Off</button>
+        <button type="button" id="recOn">On</button>
+      </div>
+      <p class="hint">Keeps the very same audio that's sent to the caption service, as a WAV file, written to this tablet every 20 seconds. It takes effect at the next Start and uses about 115 MB an hour. Let everyone at the table know they're being recorded.</p>
+      <p class="hint" id="savedInfo" hidden></p>
+      <div class="row" id="savedRow" hidden>
+        <button class="btn" id="dlAudio" type="button">Download recording</button>
+        <button class="btn" id="dlSavedText" type="button">Download its transcript</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="replayFile">Replay a recording</label>
+      <input id="replayFile" type="file" accept="audio/*,.wav">
+      <p class="hint">Plays a saved recording through the live caption service as if it were the mic, so you can compare settings on the same audio. Uses Deepgram for now.</p>
+    </div>
+
+    <div class="field">
+      <label for="extraInput">Extra Deepgram options</label>
+      <input class="input" id="extraInput" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. endpointing=500&amp;diarize_model=latest">
+      <p class="hint">Optional. Added to the connection, overriding the defaults. Leave empty unless you're experimenting.</p>
+    </div>
+
+    <div class="field">
+      <span class="label">Captions</span>
+      <div class="row">
+        <button class="btn" id="dlText" type="button">Download transcript</button>
+        <button class="btn" id="demoBtn" type="button">Play demo</button>
+        <button class="btn danger" id="clearBtn" type="button">Clear captions</button>
+      </div>
+      <p class="hint">Audio is streamed to Deepgram while captions are on, with its model-training programme opted out.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("tc." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem("tc." + k, JSON.stringify(v)); } catch {} }
+  };
+
+  const state = {
+    key: store.get("key", ""),
+    deviceId: store.get("deviceId", ""),
+    size: store.get("size", 44),
+    theme: store.get("theme", "dark"),
+    labels: store.get("labels", "names"),
+    steady: store.get("steady", false),
+    filter: store.get("filter", true),
+    saveRec: store.get("saveRec", false),
+    names: store.get("names", {}),
+    terms: store.get("terms", ""),
+    extra: store.get("extra", ""),
+    running: false, replay: false, demo: false, busy: false,
+    maxSpeaker: 3
+  };
+
+  const feed = $("#feed"), interimEl = $("#interim");
+  const DEMO_NAMES = { 0: "Example: Sue", 1: "Example: Mike", 2: "Example: Jen" };
+  const REC_DIR = "tc-recording";
+  let lines = [];
+  let examplesShown = false;
+  let session = null;      // { start, log, recorded, replay }
+  let lastLog = null;      // transcript of the most recent session, kept in memory
+  let saved = null;        // saved recording plus its transcript, kept on the tablet
+  let confirmReplace = false, pendingReplay = null;
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const clock = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600);
+    return (h ? h + ":" : "") + pad(Math.floor((s % 3600) / 60)) + ":" + pad(s % 60);
+  };
+  const fileStamp = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  const realName = (i) => (state.names[i] || "").trim() || `Speaker ${i + 1}`;
+
+  /* ---------- Display ---------- */
+  function speakerName(i) {
+    if (state.demo || examplesShown) return DEMO_NAMES[i] || `Speaker ${i + 1}`;
+    return realName(i);
+  }
+  function sessionClock() {
+    if (!session) return 0;
+    return session.replay && audioEl ? audioEl.currentTime * 1000 : Date.now() - session.start;
+  }
+  function nearBottom() { return feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140; }
+  function toBottom() { feed.scrollTop = feed.scrollHeight; $("#jumpBtn").hidden = true; }
+  function afterUpdate(wasNear) { if (wasNear) toBottom(); else $("#jumpBtn").hidden = false; }
+  function markLatest() { lines.forEach((l, i) => l.el.classList.toggle("latest", i === lines.length - 1)); }
+  function makeLine(spk) {
+    const el = document.createElement("article");
+    el.className = "line";
+    el.style.setProperty("--spk", `var(--s${spk % 6})`);
+    const who = document.createElement("button");
+    who.type = "button"; who.className = "who"; who.dataset.spk = spk;
+    who.textContent = speakerName(spk);
+    const said = document.createElement("p");
+    said.className = "said";
+    el.append(who, said);
+    feed.insertBefore(el, interimEl);
+    if (spk > state.maxSpeaker) { state.maxSpeaker = spk; renderNames(); }
+    const line = { spk, el, said, text: "", closed: false, log: null };
+    if (session) { line.log = { t: sessionClock(), spk, text: "" }; session.log.push(line.log); }
+    lines.push(line);
+    if (lines.length > 200) lines.shift().el.remove();
+    return line;
+  }
+  function runsOf(words) {
+    const runs = [];
+    for (const w of words) {
+      const spk = Number.isInteger(w.speaker) ? w.speaker : 0;
+      const t = w.punctuated_word || w.word;
+      const last = runs[runs.length - 1];
+      if (last && last.spk === spk) last.text += " " + t; else runs.push({ spk, text: t });
+    }
+    return runs;
+  }
+  function addFinal(words) {
+    const wasNear = nearBottom();
+    for (const run of runsOf(words)) {
+      let last = lines[lines.length - 1];
+      if (!last || last.spk !== run.spk || last.closed || last.text.length > 240) last = makeLine(run.spk);
+      last.text = last.text ? last.text + " " + run.text : run.text;
+      last.said.textContent = last.text;
+      if (last.log) last.log.text = last.text;
+    }
+    markLatest();
+    afterUpdate(wasNear);
+  }
+  function closeLine() { const l = lines[lines.length - 1]; if (l) l.closed = true; }
+  function setInterim(words) {
+    const wasNear = nearBottom();
+    if (!words.length) { interimEl.hidden = true; return; }
+    const spk = Number.isInteger(words[0].speaker) ? words[0].speaker : 0;
+    interimEl.style.setProperty("--spk", `var(--s${spk % 6})`);
+    interimEl.querySelector(".who").textContent = speakerName(spk);
+    interimEl.querySelector(".said").textContent = state.steady ? "…" : words.map((w) => w.punctuated_word || w.word).join(" ");
+    interimEl.hidden = false;
+    afterUpdate(wasNear);
+  }
+  function addNote(text) {
+    const wasNear = nearBottom();
+    closeLine();
+    const d = document.createElement("div");
+    d.className = "divider"; d.textContent = text;
+    feed.insertBefore(d, interimEl);
+    if (session) session.log.push({ t: sessionClock(), note: text });
+    afterUpdate(wasNear);
+  }
+  function clearCaptions() {
+    feed.querySelectorAll(".line:not(#interim), .divider, .examples-tag").forEach((e) => e.remove());
+    lines = [];
+    interimEl.hidden = true;
+    examplesShown = false;
+  }
+  function refreshWhoLabels() {
+    feed.querySelectorAll(".line .who").forEach((b) => {
+      if (b.dataset.spk !== undefined) b.textContent = speakerName(Number(b.dataset.spk));
+    });
+  }
+  function showExamples() {
+    clearCaptions();
+    examplesShown = true;
+    const tag = document.createElement("div");
+    tag.className = "examples-tag";
+    tag.textContent = "Example captions. Tap Start to caption the table.";
+    feed.insertBefore(tag, interimEl);
+    const sample = [
+      [0, "Did everyone get enough of the roast? There's more in the kitchen."],
+      [1, "I'm stuffed. Dad, did you watch the Leafs game last night?"],
+      [2, "They lost in overtime again. Third time this month."],
+      [1, "Same old story. We should go to a game in the new year."]
+    ];
+    for (const [spk, text] of sample) {
+      const l = makeLine(spk); l.text = text; l.said.textContent = text; l.closed = true;
+    }
+    markLatest();
+    requestAnimationFrame(toBottom);
+  }
+
+  /* ---------- Status and notices ---------- */
+  const STATUS = { off: "Off", connecting: "Connecting", live: "Listening", reconnecting: "Reconnecting", error: "Stopped", demo: "Demo", replay: "Replaying", saving: "Saving" };
+  function setStatus(s) { $("#pill").dataset.state = s; $("#pillText").textContent = STATUS[s]; }
+  function notify(text, kind = "info", actionLabel = "", action = null) {
+    const n = $("#notice");
+    n.dataset.kind = kind;
+    $("#noticeText").textContent = text;
+    const a = $("#noticeAction");
+    a.hidden = !actionLabel; a.textContent = actionLabel; a.onclick = action;
+    n.hidden = false;
+  }
+  function clearNotice() { $("#notice").hidden = true; }
+  function updateStartBtn() {
+    const b = $("#startBtn");
+    const on = state.running || state.demo;
+    b.dataset.running = String(on);
+    b.disabled = state.busy;
+    b.textContent = state.busy ? "One moment…" : on ? "Stop" : "Start captions";
+  }
+
+  /* ---------- Saved recording (written to the tablet as it goes) ---------- */
+  const Rec = {
+    on: false, dir: null, mem: null, pending: [], seg: 0, timer: 0, failed: false, chain: Promise.resolve(),
+    async begin(meta) {
+      this.pending = []; this.seg = 0; this.mem = null; this.dir = null; this.failed = false;
+      try {
+        const root = await navigator.storage.getDirectory();
+        try { await root.removeEntry(REC_DIR, { recursive: true }); } catch {}
+        this.dir = await root.getDirectoryHandle(REC_DIR, { create: true });
+      } catch { this.mem = []; }
+      store.set("recMeta", meta); store.set("recLog", []);
+      this.on = true;
+      this.timer = setInterval(() => this.checkpoint(), 20000);
+    },
+    push(pcm) { if (this.on) this.pending.push(pcm); },
+    checkpoint() { this.flush(); if (session) store.set("recLog", session.log); },
+    flush() {
+      const parts = this.pending; this.pending = [];
+      if (!parts.length) return this.chain;
+      if (!this.dir) { this.mem.push(...parts); return this.chain; }
+      const dir = this.dir, name = `seg-${String(this.seg++).padStart(5, "0")}.pcm`;
+      this.chain = this.chain.then(async () => {
+        const fh = await dir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(new Blob(parts)); await w.close();
+      }).catch(() => {
+        if (!this.failed) notify("The tablet couldn't save part of the recording. Its storage may be full. Captions carry on.", "error");
+        this.failed = true;
+      });
+      return this.chain;
+    },
+    async end() { this.on = false; clearInterval(this.timer); await this.flush(); }
+  };
+  function wavHeader(bytes, rate) {
+    const b = new ArrayBuffer(44), v = new DataView(b);
+    const s = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+    s(0, "RIFF"); v.setUint32(4, 36 + bytes, true); s(8, "WAVE"); s(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    s(36, "data"); v.setUint32(40, bytes, true);
+    return b;
+  }
+  async function loadSaved() {
+    saved = null;
+    const meta = store.get("recMeta", null);
+    if (!meta) return;
+    let parts = [];
+    if (Rec.mem) parts = Rec.mem;
+    else {
+      try {
+        const root = await navigator.storage.getDirectory();
+        const dir = await root.getDirectoryHandle(REC_DIR);
+        const files = [];
+        for await (const [name, h] of dir.entries()) if (name.startsWith("seg-")) files.push([name, await h.getFile()]);
+        files.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+        parts = files.map((f) => f[1]);
+      } catch {}
+    }
+    const bytes = parts.reduce((n, p) => n + (p.size ?? p.byteLength), 0);
+    if (!bytes) return;
+    saved = {
+      meta, bytes,
+      blob: new Blob([wavHeader(bytes, meta.rate), ...parts], { type: "audio/wav" }),
+      entries: store.get("recLog", []).filter((e) => e.note || e.text),
+      length: (bytes / 2 / meta.rate) * 1000
+    };
+  }
+  function renderSaved() {
+    $("#savedRow").hidden = !saved; $("#savedInfo").hidden = !saved;
+    if (!saved) return;
+    $("#dlSavedText").hidden = !saved.entries.length;
+    const when = new Date(saved.meta.start).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    const mb = saved.bytes / 1048576;
+    const size = mb < 1 ? `${Math.max(1, Math.round(saved.bytes / 1024))} KB` : `${mb.toFixed(1)} MB`;
+    $("#savedInfo").textContent = `Saved recording: ${when}, ${clock(saved.length)} long, ${size}.` +
+      (saved.meta.done ? "" : " Recovered from a session that didn't finish normally.");
+  }
+  function saveFile(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  }
+  function transcriptBlob(entries, start, source) {
+    const head = [
+      "Table Captions transcript",
+      `Started: ${new Date(start).toLocaleString()}`,
+      `Source: ${source}`,
+      "Service: Deepgram nova-3, live streaming",
+      ""
+    ];
+    const body = entries.map((e) => (e.note ? `[${clock(e.t)}] -- ${e.note} --` : `[${clock(e.t)}] ${realName(e.spk)}: ${e.text}`));
+    return new Blob([head.concat(body).join("\n") + "\n"], { type: "text/plain" });
+  }
+  function markDownloaded(which) {
+    if (!saved) return;
+    saved.meta[which] = true; store.set("recMeta", saved.meta);
+    if (saved.meta.gotAudio && (saved.meta.gotText || !saved.entries.length)) confirmReplace = false;
+  }
+  function downloadAudio() {
+    if (!saved) return;
+    saveFile(saved.blob, `table-captions-${fileStamp(new Date(saved.meta.start))}.wav`);
+    markDownloaded("gotAudio");
+    clearNotice();
+  }
+  function downloadSavedText() {
+    if (!saved || !saved.entries.length) return;
+    saveFile(transcriptBlob(saved.entries, saved.meta.start, "live microphone"), `table-captions-${fileStamp(new Date(saved.meta.start))}-deepgram.txt`);
+    markDownloaded("gotText");
+  }
+  function downloadText() {
+    const src = session ? { entries: session.log, start: session.start, replay: session.replay } : lastLog;
+    const entries = src ? src.entries.filter((e) => e.note || e.text) : [];
+    if (!entries.length) { closeSettings(); notify("There are no captions to save yet."); return; }
+    saveFile(transcriptBlob(entries, src.start, src.replay ? `replay of ${src.replay}` : "live microphone"),
+      `table-captions-${fileStamp(new Date(src.start))}${src.replay ? "-replay" : ""}-deepgram.txt`);
+  }
+  const savedPending = () => saved && !(saved.meta.gotAudio && (saved.meta.gotText || !saved.entries.length));
+
+  /* ---------- Audio: one raw stream feeds the caption service, the recording and the meter ---------- */
+  let ctx = null, tap = null, stream = null, audioEl = null, audioUrl = "";
+  const WORKLET = `class Tap extends AudioWorkletProcessor{constructor(o){super();this.size=o.processorOptions.size;this.buf=new Float32Array(this.size);this.n=0;}
+process(inputs){const ch=inputs[0]&&inputs[0][0];if(ch){let i=0;while(i<ch.length){const k=Math.min(ch.length-i,this.size-this.n);this.buf.set(ch.subarray(i,i+k),this.n);this.n+=k;i+=k;if(this.n===this.size){this.port.postMessage(this.buf.slice(0));this.n=0;}}}return true;}}
+registerProcessor("tap",Tap);`;
+
+  async function buildGraph(makeSource) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    let src;
+    try { ctx = new AC({ sampleRate: 16000 }); src = makeSource(ctx); }
+    catch { try { ctx && ctx.close(); } catch {} ctx = new AC(); src = makeSource(ctx); }
+    if (ctx.state === "suspended") await ctx.resume();
+    const mute = ctx.createGain(); mute.gain.value = 0; mute.connect(ctx.destination);
+    if (ctx.audioWorklet) {
+      const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
+      try { await ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+      tap = new AudioWorkletNode(ctx, "tap", {
+        numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: "explicit", channelInterpretation: "speakers",
+        processorOptions: { size: Math.round(ctx.sampleRate / 10) }
+      });
+      tap.port.onmessage = (e) => onFrames(e.data);
+    } else {
+      tap = ctx.createScriptProcessor(4096, 1, 1);
+      tap.onaudioprocess = (e) => onFrames(new Float32Array(e.inputBuffer.getChannelData(0)));
+    }
+    src.connect(tap); tap.connect(mute);
+  }
+  function onFrames(f) {
+    const pcm = new Int16Array(f.length);
+    let sum = 0;
+    for (let i = 0; i < f.length; i++) {
+      const v = Math.max(-1, Math.min(1, f[i]));
+      sum += v * v;
+      pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+    }
+    $("#meterFill").style.width = Math.min(100, Math.round(Math.sqrt(sum / f.length) * 400)) + "%";
+    if (!state.running) return;
+    if (ws && ws.readyState === 1) ws.send(pcm.buffer);
+    Rec.push(pcm);
+  }
+  function teardownAudio() {
+    try { if (tap) { tap.port && (tap.port.onmessage = null); tap.onaudioprocess = null; tap.disconnect(); } } catch {}
+    tap = null;
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    if (audioEl) { try { audioEl.pause(); } catch {} audioEl.onended = audioEl.onerror = null; audioEl = null; }
+    if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = ""; }
+    try { ctx && ctx.close(); } catch {}
+    ctx = null;
+    $("#meterFill").style.width = "0%";
+  }
+  async function refreshDevices() {
+    const sel = $("#micSelect");
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput");
+      sel.innerHTML = "";
+      const def = document.createElement("option"); def.value = ""; def.textContent = "Default microphone"; sel.append(def);
+      devs.forEach((d, i) => {
+        if (d.deviceId === "default" || !d.deviceId) return;
+        const o = document.createElement("option");
+        o.value = d.deviceId; o.textContent = d.label || `Microphone ${i + 1}`;
+        sel.append(o);
+      });
+      sel.value = [...sel.options].some((o) => o.value === state.deviceId) ? state.deviceId : "";
+    } catch {}
+  }
+
+  /* ---------- Deepgram live streaming ---------- */
+  let ws = null, keepAlive = 0, retries = 0, everOpened = false, wakeLock = null;
+
+  function termList() {
+    const seen = new Set();
+    return state.terms.split(/[\n,;]+/).map((t) => t.trim()).filter((t) => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase())).slice(0, 50);
+  }
+  function serviceUrl() {
+    const p = new URLSearchParams({
+      model: "nova-3", language: "en", smart_format: "true", punctuate: "true", diarize: "true",
+      interim_results: "true", endpointing: "300", utterance_end_ms: "1000",
+      encoding: "linear16", sample_rate: String(ctx.sampleRate), channels: "1", mip_opt_out: "true"
+    });
+    for (const t of termList()) p.append("keyterm", t);
+    try {
+      for (const [k, v] of new URLSearchParams(state.extra.trim().replace(/^[?&]+/, ""))) {
+        if (k === "keyterm") p.append(k, v); else if (k) p.set(k, v);
+      }
+    } catch {}
+    return "wss://api.deepgram.com/v1/listen?" + p;
+  }
+  function connect() {
+    setStatus(everOpened || retries ? "reconnecting" : "connecting");
+    let s;
+    try { s = new WebSocket(serviceUrl(), ["token", state.key]); }
+    catch { fail("Couldn't reach the caption service. Check the internet connection."); return; }
+    ws = s;
+    s.onopen = () => {
+      if (ws !== s) return;
+      const again = everOpened;
+      everOpened = true; retries = 0;
+      setStatus(state.replay ? "replay" : "live"); clearNotice();
+      if (again) addNote("Reconnected. Speaker numbers may have changed.");
+      if (state.replay && audioEl) audioEl.play().catch(() => fail("The recording couldn't be played."));
+      keepAlive = setInterval(() => { if (s.readyState === 1) s.send(JSON.stringify({ type: "KeepAlive" })); }, 8000);
+    };
+    s.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch {} };
+    s.onclose = () => {
+      clearInterval(keepAlive);
+      if (ws !== s || !state.running) return;
+      if (state.replay && audioEl) audioEl.pause();
+      if (!everOpened && retries >= 2) {
+        fail("Couldn't connect to Deepgram. Check the API key in Settings and the internet connection.", true);
+        return;
+      }
+      retries++;
+      setStatus("reconnecting");
+      notify("Connection dropped. Reconnecting…");
+      setTimeout(() => { if (state.running && ws === s) connect(); }, Math.min(1000 * 2 ** retries, 10000));
+    };
+  }
+  function closeSocket() {
+    const s = ws; ws = null;
+    clearInterval(keepAlive);
+    if (!s) return Promise.resolve();
+    return new Promise((res) => {
+      const t = setTimeout(() => { try { s.close(); } catch {} res(); }, 1500);
+      s.onclose = () => { clearTimeout(t); res(); };
+      try {
+        if (s.readyState === 1) s.send(JSON.stringify({ type: "CloseStream" }));
+        else { s.onclose = null; clearTimeout(t); s.close(); res(); }
+      } catch { clearTimeout(t); res(); }
+    });
+  }
+  function handle(m) {
+    if (m.type === "Results") {
+      const words = m.channel?.alternatives?.[0]?.words || [];
+      if (m.is_final) {
+        setInterim([]);
+        if (words.length) addFinal(words);
+        if (m.speech_final) closeLine();
+      } else {
+        setInterim(words);
+      }
+    } else if (m.type === "UtteranceEnd") {
+      setInterim([]); closeLine();
+    }
+  }
+  async function requestWake() {
+    try { if ("wakeLock" in navigator && (state.running || state.demo)) wakeLock = await navigator.wakeLock.request("screen"); } catch {}
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    requestWake();
+    if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
+  });
+  window.addEventListener("beforeunload", (e) => { if (state.running) { e.preventDefault(); e.returnValue = ""; } });
+  window.addEventListener("pagehide", () => { if (Rec.on) Rec.checkpoint(); });
+
+  function begin(replayName) {
+    session = { start: Date.now(), log: [], recorded: false, replay: replayName || "" };
+    everOpened = false; retries = 0;
+  }
+  async function start() {
+    if (state.busy || state.running) return;
+    if (!state.key) {
+      notify("Add your Deepgram API key to start captions.", "info", "Open settings", () => openSettings("#keyInput"));
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      notify("This browser can't use the microphone here. Open the page over https in Chrome.", "error");
+      return;
+    }
+    if (state.saveRec && savedPending() && !confirmReplace) {
+      confirmReplace = true;
+      notify("The last recording or its transcript hasn't been downloaded. Recording again replaces them. Tap Start again to go ahead.", "info", "Open settings", () => openSettings("#dlAudio"));
+      return;
+    }
+    confirmReplace = false; pendingReplay = null;
+    stopDemo();
+    if (examplesShown) clearCaptions();
+    clearNotice();
+    state.busy = true; updateStartBtn();
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: state.deviceId ? { exact: state.deviceId } : undefined,
+          channelCount: 1, echoCancellation: false, noiseSuppression: !!state.filter, autoGainControl: true
+        }
+      });
+    } catch (e) {
+      const msg = e && e.name === "NotAllowedError"
+        ? "Microphone access was blocked. Allow the microphone for this site in Chrome's site settings, then try again."
+        : e && e.name === "OverconstrainedError"
+          ? "The chosen microphone isn't connected. Pick another in Settings."
+          : "Couldn't open the microphone. Check that it's plugged in and not in use by another app.";
+      state.busy = false; updateStartBtn();
+      notify(msg, "error");
+      return;
+    }
+    try { await buildGraph((c) => c.createMediaStreamSource(stream)); }
+    catch { teardownAudio(); state.busy = false; updateStartBtn(); notify("Couldn't start listening in this browser. Try the latest Chrome.", "error"); return; }
+    refreshDevices();
+    begin("");
+    if (state.saveRec) {
+      saved = null; renderSaved();
+      await Rec.begin({ rate: ctx.sampleRate, start: session.start, done: false, gotAudio: false, gotText: false });
+      session.recorded = true;
+      $("#recBadge").hidden = false;
+    }
+    state.running = true; state.busy = false;
+    updateStartBtn();
+    requestWake();
+    connect();
+  }
+  async function startReplay(file) {
+    if (state.busy || state.running) return;
+    if (!state.key) {
+      notify("Add your Deepgram API key to replay a recording.", "info", "Open settings", () => openSettings("#keyInput"));
+      return;
+    }
+    pendingReplay = null;
+    stopDemo(); clearCaptions(); clearNotice();
+    state.busy = true; updateStartBtn();
+    try {
+      audioUrl = URL.createObjectURL(file);
+      audioEl = new Audio(audioUrl);
+      audioEl.preload = "auto";
+      const el = audioEl;
+      await buildGraph((c) => { const n = c.createMediaElementSource(el); n.connect(c.destination); return n; });
+    } catch { teardownAudio(); state.busy = false; updateStartBtn(); notify("That file couldn't be opened. Use a recording saved by this page.", "error"); return; }
+    audioEl.onended = () => setTimeout(() => { if (state.replay) stop("Replay finished. The transcript is in Settings."); }, 2500);
+    audioEl.onerror = () => fail("That file couldn't be played. Use a recording saved by this page.");
+    begin(file.name);
+    state.running = true; state.replay = true; state.busy = false;
+    updateStartBtn();
+    requestWake();
+    connect();
+  }
+  async function stop(doneMsg, quiet) {
+    if (!state.running) return;
+    state.running = false; state.replay = false; state.busy = true;
+    setStatus("saving"); updateStartBtn();
+    teardownAudio();
+    await closeSocket();
+    setInterim([]);
+    const s = session; session = null;
+    if (s.recorded) {
+      await Rec.end();
+      store.set("recLog", s.log);
+      store.set("recMeta", { ...store.get("recMeta", {}), done: true });
+      await loadSaved(); renderSaved();
+      $("#recBadge").hidden = true;
+    }
+    lastLog = { entries: s.log, start: s.start, replay: s.replay };
+    try { wakeLock && wakeLock.release(); } catch {}
+    wakeLock = null;
+    state.busy = false;
+    setStatus("off"); updateStartBtn();
+    if (quiet) return;
+    if (s.recorded && saved) notify(`Recording saved (${clock(saved.length)}). Download it and its transcript before you record again.`, "info", "Download recording", downloadAudio);
+    else if (doneMsg) notify(doneMsg);
+  }
+  async function fail(msg, offerSettings) {
+    const wasRecording = !!(session && session.recorded);
+    await stop("", true);
+    setStatus("error");
+    notify(msg + (wasRecording && saved ? " The recording so far is saved in Settings." : ""), "error",
+      offerSettings ? "Open settings" : "", offerSettings ? () => openSettings("#keyInput") : null);
+  }
+
+  /* ---------- Demo ---------- */
+  let demoTimer = 0;
+  const DEMO = [
+    [0, "Okay, who wants tea? The kettle's just boiled."],
+    [1, "I'll have one, thanks. Milk, no sugar."],
+    [2, "Did you hear the forecast? They're saying fifteen centimetres of snow on Saturday."],
+    [0, "Then we'd better do the grocery run on Friday."],
+    [1, "Dad, you're still on for darts Thursday night, right?"]
+  ];
+  async function playDemo() {
+    if (state.busy) return;
+    closeSettings();
+    await stop("", true);
+    clearCaptions();
+    state.demo = true; setStatus("demo"); updateStartBtn(); requestWake();
+    notify("Demo conversation. Names and words are examples.", "info");
+    let li = 0, wi = 0;
+    const step = () => {
+      if (!state.demo) return;
+      if (li >= DEMO.length) { stopDemo(); notify("Demo finished. Tap Start to caption the table."); return; }
+      const [spk, text] = DEMO[li];
+      const words = text.split(" ");
+      wi++;
+      const shown = words.slice(0, wi).map((w) => ({ word: w, punctuated_word: w, speaker: spk }));
+      if (wi < words.length) { setInterim(shown); demoTimer = setTimeout(step, 230); }
+      else { setInterim([]); addFinal(shown); closeLine(); li++; wi = 0; demoTimer = setTimeout(step, 1100); }
+    };
+    demoTimer = setTimeout(step, 400);
+  }
+  function stopDemo() {
+    if (!state.demo) return;
+    clearTimeout(demoTimer); state.demo = false;
+    setInterim([]); setStatus("off"); updateStartBtn();
+    examplesShown = lines.length > 0;
+  }
+
+  /* ---------- Settings ---------- */
+  function applySize() {
+    document.documentElement.style.setProperty("--cap-size", state.size + "px");
+    $("#sizeRange").value = state.size; $("#sizeVal").textContent = `(${state.size}px)`;
+  }
+  function setSize(v) { state.size = Math.max(24, Math.min(88, v)); store.set("size", state.size); applySize(); }
+  function bindSeg(key, map, after) {
+    const paint = () => { for (const [id, v] of Object.entries(map)) $("#" + id).setAttribute("aria-pressed", String(state[key] === v)); };
+    for (const [id, v] of Object.entries(map)) {
+      $("#" + id).addEventListener("click", () => { state[key] = v; store.set(key, v); paint(); if (after) after(); });
+    }
+    paint(); if (after) after();
+  }
+  function renderNames() {
+    const box = $("#names"); box.innerHTML = "";
+    for (let i = 0; i <= Math.min(state.maxSpeaker, 9); i++) {
+      const sw = document.createElement("span");
+      sw.className = "swatch"; sw.style.background = `var(--s${i % 6})`;
+      const inp = document.createElement("input");
+      inp.className = "input"; inp.id = "name-" + i; inp.placeholder = `Speaker ${i + 1}`;
+      inp.setAttribute("aria-label", `Name for speaker ${i + 1}`);
+      inp.value = state.names[i] || "";
+      inp.addEventListener("input", () => { state.names[i] = inp.value; store.set("names", state.names); refreshWhoLabels(); });
+      box.append(sw, inp);
+    }
+  }
+  function openSettings(focusSel) {
+    $("#keyInput").value = state.key;
+    renderNames(); renderSaved(); refreshDevices();
+    $("#scrim").hidden = false;
+    setTimeout(() => {
+      const el = focusSel && $(focusSel);
+      if (el && !el.hidden) { el.scrollIntoView({ block: "center" }); el.focus(); } else $("#closeSettings").focus();
+    }, 30);
+  }
+  function closeSettings() { $("#scrim").hidden = true; }
+
+  /* ---------- Wire up ---------- */
+  $("#startBtn").addEventListener("click", () => {
+    if (state.demo) { stopDemo(); clearNotice(); return; }
+    if (state.running) stop(); else start();
+  });
+  $("#smaller").addEventListener("click", () => setSize(state.size - 4));
+  $("#bigger").addEventListener("click", () => setSize(state.size + 4));
+  $("#sizeRange").addEventListener("input", (e) => setSize(Number(e.target.value)));
+  $("#fullBtn").addEventListener("click", async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch {}
+  });
+  document.addEventListener("fullscreenchange", () => { $("#fullBtn").textContent = document.fullscreenElement ? "Exit full screen" : "Full screen"; });
+  $("#settingsBtn").addEventListener("click", () => openSettings());
+  $("#closeSettings").addEventListener("click", closeSettings);
+  $("#scrim").addEventListener("click", (e) => { if (e.target.id === "scrim") closeSettings(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#scrim").hidden) closeSettings(); });
+  $("#keyInput").addEventListener("input", (e) => { state.key = e.target.value.trim(); store.set("key", state.key); });
+  $("#showKey").addEventListener("click", () => {
+    const k = $("#keyInput"); const show = k.type === "password";
+    k.type = show ? "text" : "password"; $("#showKey").textContent = show ? "Hide" : "Show";
+  });
+  $("#micSelect").addEventListener("change", (e) => {
+    state.deviceId = e.target.value; store.set("deviceId", state.deviceId);
+    if (state.running) { closeSettings(); notify("The new microphone will be used the next time you start captions."); }
+  });
+  $("#refreshMics").addEventListener("click", refreshDevices);
+  $("#termsInput").value = state.terms;
+  $("#termsInput").addEventListener("input", (e) => { state.terms = e.target.value; store.set("terms", state.terms); });
+  $("#extraInput").value = state.extra;
+  $("#extraInput").addEventListener("input", (e) => { state.extra = e.target.value; store.set("extra", state.extra); });
+  bindSeg("theme", { themeDark: "dark", themeLight: "light" }, () => {
+    document.documentElement.dataset.theme = state.theme;
+    document.querySelector('meta[name="theme-color"]').content = state.theme === "dark" ? "#0f1416" : "#f6f7f5";
+  });
+  bindSeg("labels", { labelsNames: "names", labelsColours: "colours", labelsOff: "off" }, () => { document.documentElement.dataset.labels = state.labels; });
+  bindSeg("steady", { steadyOff: false, steadyOn: true });
+  bindSeg("filter", { filterOn: true, filterOff: false });
+  bindSeg("saveRec", { recOff: false, recOn: true });
+  $("#dlAudio").addEventListener("click", downloadAudio);
+  $("#dlSavedText").addEventListener("click", downloadSavedText);
+  $("#dlText").addEventListener("click", downloadText);
+  $("#replayFile").addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    closeSettings();
+    if (state.running || state.busy) { notify("Stop captions first, then choose the recording again."); return; }
+    pendingReplay = file;
+    notify(`Ready to replay ${file.name}. It plays out loud at normal speed.`, "info", "Start replay", () => { if (pendingReplay) startReplay(pendingReplay); });
+  });
+  $("#demoBtn").addEventListener("click", playDemo);
+  $("#clearBtn").addEventListener("click", () => { clearCaptions(); closeSettings(); });
+  $("#jumpBtn").addEventListener("click", toBottom);
+  feed.addEventListener("scroll", () => { if (nearBottom()) $("#jumpBtn").hidden = true; });
+  feed.addEventListener("click", (e) => {
+    const who = e.target.closest(".line:not(.interim) .who");
+    if (who && !examplesShown && !state.demo) openSettings("#name-" + who.dataset.spk);
+  });
+
+  applySize(); renderNames(); showExamples(); updateStartBtn();
+  if (!state.key) notify("First time here? Add your Deepgram API key in Settings, then tap Start.", "info", "Open settings", () => openSettings("#keyInput"));
+  loadSaved().then(() => {
+    renderSaved();
+    if (saved && !saved.meta.done) {
+      notify("A recording from a session that didn't finish normally was recovered.", "info", "Open settings", () => openSettings("#dlAudio"));
+    }
+  });
+})();
+</script>
+</body>
+</html>
