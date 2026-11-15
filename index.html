@@ -109,6 +109,7 @@ button:disabled { opacity: .55; cursor: default; }
 }
 .said { margin: 0; font-size: var(--cap-size); line-height: 1.28; overflow-wrap: anywhere; }
 .line.interim .said { color: var(--muted); }
+.said .unsure { opacity: .5; }
 :root[data-labels="colours"] .who, :root[data-labels="off"] .who { display: none; }
 :root[data-labels="off"] .line { border-left-color: var(--rule); }
 .examples-tag, .divider {
@@ -247,6 +248,15 @@ input[type="file"] { max-width: 100%; }
     </div>
 
     <div class="field">
+      <span class="label" id="doubtLabel">Doubtful words</span>
+      <div class="seg" role="group" aria-labelledby="doubtLabel">
+        <button type="button" id="doubtOff">Normal</button>
+        <button type="button" id="doubtOn">Faded</button>
+      </div>
+      <p class="hint">Fades words the service wasn't sure of, which happens most when people talk over each other. Not yet tuned on real dinners.</p>
+    </div>
+
+    <div class="field">
       <span class="label" id="labelsLabel">Who's speaking</span>
       <div class="seg" role="group" aria-labelledby="labelsLabel">
         <button type="button" id="labelsNames">Names</button>
@@ -255,7 +265,7 @@ input[type="file"] { max-width: 100%; }
       </div>
       <p class="hint">Telling voices apart from one mic is the least reliable part. If the labels are wrong more often than right, switch them off and keep the words.</p>
       <div class="names" id="names"></div>
-      <p class="hint">Voices are numbered in the order they're heard. Numbering starts over after a reconnect or restart.</p>
+      <p class="hint">Voices are numbered in the order they're heard, and names last for one session. After a reconnect the numbers carry on from where they left off, because the service can't tell who is who again.</p>
     </div>
 
     <div class="field">
@@ -278,6 +288,7 @@ input[type="file"] { max-width: 100%; }
       <div class="row" id="savedRow" hidden>
         <button class="btn" id="dlAudio" type="button">Download recording</button>
         <button class="btn" id="dlSavedText" type="button">Download its transcript</button>
+        <button class="btn" id="dlSavedRaw" type="button">Download its details</button>
       </div>
     </div>
 
@@ -294,13 +305,25 @@ input[type="file"] { max-width: 100%; }
     </div>
 
     <div class="field">
+      <span class="label" id="tidyLabel">Tidy speaker changes</span>
+      <div class="seg" role="group" aria-labelledby="tidyLabel">
+        <button type="button" id="tidyOn">On</button>
+        <button type="button" id="tidyOff">Off</button>
+      </div>
+      <p class="hint">Keeps a sentence with one speaker when only a word or two were labelled as someone else. Turn it off to see the service's raw labels.</p>
+    </div>
+
+    <div class="field">
       <span class="label">Captions</span>
       <div class="row">
         <button class="btn" id="dlText" type="button">Download transcript</button>
+        <button class="btn" id="dlRaw" type="button">Download details</button>
         <button class="btn" id="demoBtn" type="button">Play demo</button>
         <button class="btn danger" id="clearBtn" type="button">Clear captions</button>
       </div>
       <p class="hint">Audio is streamed to Deepgram while captions are on, with its model-training programme opted out.</p>
+      <p class="hint">"Details" is the service's word-by-word output with timings and confidence, for working out what to improve.</p>
+      <p class="hint" id="buildTag"></p>
     </div>
   </section>
 </div>
@@ -322,7 +345,9 @@ input[type="file"] { max-width: 100%; }
     steady: store.get("steady", false),
     filter: store.get("filter", true),
     saveRec: store.get("saveRec", false),
-    names: store.get("names", {}),
+    tidy: store.get("tidy", true),
+    doubt: store.get("doubt", false),
+    names: {},               // per session: the service renumbers voices every time it connects
     terms: store.get("terms", ""),
     extra: store.get("extra", ""),
     running: false, replay: false, demo: false, busy: false,
@@ -334,7 +359,10 @@ input[type="file"] { max-width: 100%; }
   const REC_DIR = "tc-recording";
   let lines = [];
   let examplesShown = false;
-  let session = null;      // { start, log, recorded, replay }
+  const BUILD = "Build 3, 14 Nov 2026";
+  const DOUBT = 0.5;       // words the service scored below this count as doubtful
+  let spkBase = 0, sessionMax = -1;   // speakers are renumbered after a reconnect so old names never land on new voices
+  let session = null;      // { start, log, raw, names, recorded, replay, tidy }
   let lastLog = null;      // transcript of the most recent session, kept in memory
   let saved = null;        // saved recording plus its transcript, kept on the tablet
   let confirmReplace = false, pendingReplay = null;
@@ -345,7 +373,8 @@ input[type="file"] { max-width: 100%; }
     return (h ? h + ":" : "") + pad(Math.floor((s % 3600) / 60)) + ":" + pad(s % 60);
   };
   const fileStamp = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-  const realName = (i) => (state.names[i] || "").trim() || `Speaker ${i + 1}`;
+  const nameIn = (names) => (i) => ((names && names[i]) || "").trim() || `Speaker ${i + 1}`;
+  const realName = (i) => nameIn(state.names)(i);
 
   /* ---------- Display ---------- */
   function speakerName(i) {
@@ -360,7 +389,7 @@ input[type="file"] { max-width: 100%; }
   function toBottom() { feed.scrollTop = feed.scrollHeight; $("#jumpBtn").hidden = true; }
   function afterUpdate(wasNear) { if (wasNear) toBottom(); else $("#jumpBtn").hidden = false; }
   function markLatest() { lines.forEach((l, i) => l.el.classList.toggle("latest", i === lines.length - 1)); }
-  function makeLine(spk) {
+  function makeLine(spk, at) {
     const el = document.createElement("article");
     el.className = "line";
     el.style.setProperty("--spk", `var(--s${spk % 6})`);
@@ -372,31 +401,89 @@ input[type="file"] { max-width: 100%; }
     el.append(who, said);
     feed.insertBefore(el, interimEl);
     if (spk > state.maxSpeaker) { state.maxSpeaker = spk; renderNames(); }
-    const line = { spk, el, said, text: "", closed: false, log: null };
-    if (session) { line.log = { t: sessionClock(), spk, text: "" }; session.log.push(line.log); }
+    const line = { spk, el, said, words: [], tail: [], len: 0, closed: false, log: null };
+    if (session) { line.log = { t: Number.isFinite(at) ? at : sessionClock(), spk, text: "" }; session.log.push(line.log); }
     lines.push(line);
     if (lines.length > 200) lines.shift().el.remove();
     return line;
   }
-  function runsOf(words) {
-    const runs = [];
-    for (const w of words) {
-      const spk = Number.isInteger(w.speaker) ? w.speaker : 0;
-      const t = w.punctuated_word || w.word;
-      const last = runs[runs.length - 1];
-      if (last && last.spk === spk) last.text += " " + t; else runs.push({ spk, text: t });
+  const ENDS = /[.?!…]["')\]]*$/;
+  function appendWord(line, w) {
+    line.words.push(w); line.len += w.t.length + 1;
+    if (ENDS.test(w.t)) line.tail = []; else line.tail.push(w);
+  }
+  function paint(line) {
+    const text = line.words.map((w) => w.t).join(" ");
+    if (state.doubt && line.words.some((w) => w.conf < DOUBT)) {
+      line.said.textContent = "";
+      line.words.forEach((w, i) => {
+        if (i) line.said.append(" ");
+        if (w.conf < DOUBT) {
+          const el = document.createElement("span");
+          el.className = "unsure"; el.textContent = w.t;
+          line.said.append(el);
+        } else line.said.append(w.t);
+      });
+    } else line.said.textContent = text;
+    if (line.log) line.log.text = text;
+  }
+  function dropLine(line) {
+    line.el.remove();
+    lines = lines.filter((l) => l !== line);
+    if (line.log && session) session.log = session.log.filter((e) => e !== line.log);
+  }
+  // Keeps a sentence with one speaker when only a word or two carry another label.
+  // Returns how many unfinished words at the end of the last line belong with the new words instead.
+  function tidySpeakers(ws, last) {
+    const carry = last && !last.closed ? last.tail.length : 0;
+    let pull = 0, first = true, i = 0;
+    while (i < ws.length) {
+      let j = i;
+      while (j < ws.length - 1 && !ENDS.test(ws[j].t)) j++;
+      const counts = new Map();
+      if (first && carry) counts.set(last.spk, carry);
+      for (let k = i; k <= j; k++) counts.set(ws[k].spk, (counts.get(ws[k].spk) || 0) + 1);
+      if (counts.size > 1) {
+        let total = 0, top = -1, topN = 0, tie = false;
+        for (const [spk, n] of counts) {
+          total += n;
+          if (n > topN) { top = spk; topN = n; tie = false; } else if (n === topN) tie = true;
+        }
+        if (!tie && total - topN <= 2) {
+          for (let k = i; k <= j; k++) ws[k].spk = top;
+          if (first && carry && last.spk !== top) pull = carry;
+        }
+      }
+      first = false; i = j + 1;
     }
-    return runs;
+    return pull;
   }
   function addFinal(words) {
     const wasNear = nearBottom();
-    for (const run of runsOf(words)) {
-      let last = lines[lines.length - 1];
-      if (!last || last.spk !== run.spk || last.closed || last.text.length > 240) last = makeLine(run.spk);
-      last.text = last.text ? last.text + " " + run.text : run.text;
-      last.said.textContent = last.text;
-      if (last.log) last.log.text = last.text;
+    let ws = words.map((w) => ({
+      t: w.punctuated_word || w.word,
+      spk: spkBase + (Number.isInteger(w.speaker) ? w.speaker : 0),
+      at: Number.isFinite(w.start) ? connOffset + w.start * 1000 : NaN,
+      conf: Number.isFinite(w.confidence) ? w.confidence : 1
+    })).filter((w) => w.t);
+    for (const w of ws) if (w.spk > sessionMax) sessionMax = w.spk;
+    let last = lines[lines.length - 1];
+    if (state.tidy && tidySpeakers(ws, last)) {
+      const moved = last.tail.map((w) => ({ ...w, spk: ws[0].spk }));
+      last.words.length -= moved.length;
+      last.len -= moved.reduce((n, w) => n + w.t.length + 1, 0);
+      last.tail = [];
+      if (last.words.length) paint(last); else dropLine(last);
+      ws = moved.concat(ws);
+      last = lines[lines.length - 1];
     }
+    const touched = new Set();
+    for (const w of ws) {
+      if (!last || last.spk !== w.spk || last.closed || last.len > 320 || (last.len > 160 && !last.tail.length)) last = makeLine(w.spk, w.at);
+      appendWord(last, w);
+      touched.add(last);
+    }
+    touched.forEach(paint);
     markLatest();
     afterUpdate(wasNear);
   }
@@ -404,21 +491,31 @@ input[type="file"] { max-width: 100%; }
   function setInterim(words) {
     const wasNear = nearBottom();
     if (!words.length) { interimEl.hidden = true; return; }
-    const spk = Number.isInteger(words[0].speaker) ? words[0].speaker : 0;
+    const spk = spkBase + (Number.isInteger(words[0].speaker) ? words[0].speaker : 0);
     interimEl.style.setProperty("--spk", `var(--s${spk % 6})`);
     interimEl.querySelector(".who").textContent = speakerName(spk);
     interimEl.querySelector(".said").textContent = state.steady ? "…" : words.map((w) => w.punctuated_word || w.word).join(" ");
     interimEl.hidden = false;
     afterUpdate(wasNear);
   }
-  function addNote(text) {
+  function addNote(text, displayOnly) {
     const wasNear = nearBottom();
     closeLine();
     const d = document.createElement("div");
     d.className = "divider"; d.textContent = text;
     feed.insertBefore(d, interimEl);
-    if (session) session.log.push({ t: sessionClock(), note: text });
+    if (session && !displayOnly) {
+      session.log.push({ t: sessionClock(), note: text });
+      logRaw({ type: "note", offsetMs: Math.round(sessionClock()), text });
+    }
     afterUpdate(wasNear);
+  }
+  // Word-by-word record of what the service sent, for analysis afterwards.
+  function logRaw(obj) {
+    if (!session) return;
+    const line = JSON.stringify(obj);
+    session.raw.push(line);
+    Rec.pushRaw(line);
   }
   function clearCaptions() {
     feed.querySelectorAll(".line:not(#interim), .divider, .examples-tag").forEach((e) => e.remove());
@@ -445,7 +542,7 @@ input[type="file"] { max-width: 100%; }
       [1, "Same old story. We should go to a game in the new year."]
     ];
     for (const [spk, text] of sample) {
-      const l = makeLine(spk); l.text = text; l.said.textContent = text; l.closed = true;
+      const l = makeLine(spk); text.split(" ").forEach((t) => appendWord(l, { t })); paint(l); l.closed = true;
     }
     markLatest();
     requestAnimationFrame(toBottom);
@@ -473,29 +570,35 @@ input[type="file"] { max-width: 100%; }
 
   /* ---------- Saved recording (written to the tablet as it goes) ---------- */
   const Rec = {
-    on: false, dir: null, mem: null, pending: [], seg: 0, timer: 0, failed: false, chain: Promise.resolve(),
+    on: false, dir: null, mem: null, rawMem: null, pending: [], rawPending: [], seg: 0, timer: 0, failed: false, chain: Promise.resolve(),
     async begin(meta) {
-      this.pending = []; this.seg = 0; this.mem = null; this.dir = null; this.failed = false;
+      this.pending = []; this.rawPending = []; this.seg = 0; this.mem = null; this.rawMem = null; this.dir = null; this.failed = false;
       try {
         const root = await navigator.storage.getDirectory();
         try { await root.removeEntry(REC_DIR, { recursive: true }); } catch {}
         this.dir = await root.getDirectoryHandle(REC_DIR, { create: true });
-      } catch { this.mem = []; }
-      store.set("recMeta", meta); store.set("recLog", []);
+      } catch { this.mem = []; this.rawMem = []; }
+      store.set("recMeta", meta); store.set("recLog", []); store.set("recNames", {});
       this.on = true;
       this.timer = setInterval(() => this.checkpoint(), 20000);
     },
     push(pcm) { if (this.on) this.pending.push(pcm); },
+    pushRaw(line) { if (this.on) this.rawPending.push(line); },
     checkpoint() { this.flush(); if (session) store.set("recLog", session.log); },
     flush() {
-      const parts = this.pending; this.pending = [];
-      if (!parts.length) return this.chain;
-      if (!this.dir) { this.mem.push(...parts); return this.chain; }
-      const dir = this.dir, name = `seg-${String(this.seg++).padStart(5, "0")}.pcm`;
-      this.chain = this.chain.then(async () => {
+      const parts = this.pending, raw = this.rawPending;
+      this.pending = []; this.rawPending = [];
+      if (!parts.length && !raw.length) return this.chain;
+      if (!this.dir) { this.mem.push(...parts); this.rawMem.push(...raw); return this.chain; }
+      const dir = this.dir, n = String(this.seg++).padStart(5, "0");
+      const put = async (name, blob) => {
         const fh = await dir.getFileHandle(name, { create: true });
         const w = await fh.createWritable();
-        await w.write(new Blob(parts)); await w.close();
+        await w.write(blob); await w.close();
+      };
+      this.chain = this.chain.then(async () => {
+        if (parts.length) await put(`seg-${n}.pcm`, new Blob(parts));
+        if (raw.length) await put(`raw-${n}.txt`, new Blob([raw.join("\n") + "\n"]));
       }).catch(() => {
         if (!this.failed) notify("The tablet couldn't save part of the recording. Its storage may be full. Captions carry on.", "error");
         this.failed = true;
@@ -517,16 +620,20 @@ input[type="file"] { max-width: 100%; }
     saved = null;
     const meta = store.get("recMeta", null);
     if (!meta) return;
-    let parts = [];
-    if (Rec.mem) parts = Rec.mem;
+    let parts = [], rawParts = [];
+    if (Rec.mem) { parts = Rec.mem; if (Rec.rawMem.length) rawParts = [Rec.rawMem.join("\n") + "\n"]; }
     else {
       try {
         const root = await navigator.storage.getDirectory();
         const dir = await root.getDirectoryHandle(REC_DIR);
-        const files = [];
-        for await (const [name, h] of dir.entries()) if (name.startsWith("seg-")) files.push([name, await h.getFile()]);
-        files.sort((a, b) => (a[0] < b[0] ? -1 : 1));
-        parts = files.map((f) => f[1]);
+        const files = [], raws = [];
+        for await (const [name, h] of dir.entries()) {
+          if (name.startsWith("seg-")) files.push([name, await h.getFile()]);
+          else if (name.startsWith("raw-")) raws.push([name, await h.getFile()]);
+        }
+        const byName = (a, b) => (a[0] < b[0] ? -1 : 1);
+        parts = files.sort(byName).map((f) => f[1]);
+        rawParts = raws.sort(byName).map((f) => f[1]);
       } catch {}
     }
     const bytes = parts.reduce((n, p) => n + (p.size ?? p.byteLength), 0);
@@ -535,6 +642,8 @@ input[type="file"] { max-width: 100%; }
       meta, bytes,
       blob: new Blob([wavHeader(bytes, meta.rate), ...parts], { type: "audio/wav" }),
       entries: store.get("recLog", []).filter((e) => e.note || e.text),
+      names: store.get("recNames", {}),
+      raw: rawParts.length ? new Blob(rawParts, { type: "text/plain" }) : null,
       length: (bytes / 2 / meta.rate) * 1000
     };
   }
@@ -542,6 +651,7 @@ input[type="file"] { max-width: 100%; }
     $("#savedRow").hidden = !saved; $("#savedInfo").hidden = !saved;
     if (!saved) return;
     $("#dlSavedText").hidden = !saved.entries.length;
+    $("#dlSavedRaw").hidden = !saved.raw;
     const when = new Date(saved.meta.start).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
     const mb = saved.bytes / 1048576;
     const size = mb < 1 ? `${Math.max(1, Math.round(saved.bytes / 1024))} KB` : `${mb.toFixed(1)} MB`;
@@ -555,15 +665,17 @@ input[type="file"] { max-width: 100%; }
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   }
-  function transcriptBlob(entries, start, source) {
+  function transcriptBlob(entries, start, source, tidy, names) {
+    const who = nameIn(names);
     const head = [
       "Table Captions transcript",
       `Started: ${new Date(start).toLocaleString()}`,
       `Source: ${source}`,
       "Service: Deepgram nova-3, live streaming",
+      `Speaker tidy-up: ${tidy === false ? "off" : "on"}`,
       ""
     ];
-    const body = entries.map((e) => (e.note ? `[${clock(e.t)}] -- ${e.note} --` : `[${clock(e.t)}] ${realName(e.spk)}: ${e.text}`));
+    const body = entries.map((e) => (e.note ? `[${clock(e.t)}] -- ${e.note} --` : `[${clock(e.t)}] ${who(e.spk)}: ${e.text}`));
     return new Blob([head.concat(body).join("\n") + "\n"], { type: "text/plain" });
   }
   function markDownloaded(which) {
@@ -579,15 +691,24 @@ input[type="file"] { max-width: 100%; }
   }
   function downloadSavedText() {
     if (!saved || !saved.entries.length) return;
-    saveFile(transcriptBlob(saved.entries, saved.meta.start, "live microphone"), `table-captions-${fileStamp(new Date(saved.meta.start))}-deepgram.txt`);
+    saveFile(transcriptBlob(saved.entries, saved.meta.start, "live microphone", saved.meta.tidy, saved.names), `table-captions-${fileStamp(new Date(saved.meta.start))}-deepgram.txt`);
     markDownloaded("gotText");
   }
   function downloadText() {
-    const src = session ? { entries: session.log, start: session.start, replay: session.replay } : lastLog;
+    const src = session ? { entries: session.log, start: session.start, replay: session.replay, tidy: session.tidy, names: session.names } : lastLog;
     const entries = src ? src.entries.filter((e) => e.note || e.text) : [];
     if (!entries.length) { closeSettings(); notify("There are no captions to save yet."); return; }
-    saveFile(transcriptBlob(entries, src.start, src.replay ? `replay of ${src.replay}` : "live microphone"),
+    saveFile(transcriptBlob(entries, src.start, src.replay ? `replay of ${src.replay}` : "live microphone", src.tidy, src.names),
       `table-captions-${fileStamp(new Date(src.start))}${src.replay ? "-replay" : ""}-deepgram.txt`);
+  }
+  function downloadSavedRaw() {
+    if (saved && saved.raw) saveFile(saved.raw, `table-captions-${fileStamp(new Date(saved.meta.start))}-deepgram-details.txt`);
+  }
+  function downloadRaw() {
+    const src = session ? { raw: session.raw, start: session.start, replay: session.replay } : lastLog;
+    if (!src || src.raw.length < 2) { closeSettings(); notify("There are no details to save yet."); return; }
+    saveFile(new Blob([src.raw.join("\n") + "\n"], { type: "text/plain" }),
+      `table-captions-${fileStamp(new Date(src.start))}${src.replay ? "-replay" : ""}-deepgram-details.txt`);
   }
   const savedPending = () => saved && !(saved.meta.gotAudio && (saved.meta.gotText || !saved.entries.length));
 
@@ -626,10 +747,24 @@ registerProcessor("tap",Tap);`;
       sum += v * v;
       pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
     }
-    $("#meterFill").style.width = Math.min(100, Math.round(Math.sqrt(sum / f.length) * 400)) + "%";
+    const level = Math.sqrt(sum / f.length);
+    $("#meterFill").style.width = Math.min(100, Math.round(level * 400)) + "%";
     if (!state.running) return;
-    if (ws && ws.readyState === 1) ws.send(pcm.buffer);
+    if (ws && ws.readyState === 1) {
+      // More than ten seconds of audio waiting to leave the tablet means the connection has stalled.
+      if (ws.bufferedAmount > 320000) lost(ws); else ws.send(pcm.buffer);
+    }
     Rec.push(pcm);
+    if (!state.replay && !quiet.warned) {
+      if (level > quiet.peak) quiet.peak = level;
+      if (Date.now() - quiet.since > 20000) {
+        if (quiet.peak < 0.003) {
+          quiet.warned = true;
+          notify("The mic is hearing almost nothing. Check it's plugged in and chosen in Settings.", "error");
+        }
+        quiet.since = Date.now(); quiet.peak = 0;
+      }
+    }
   }
   function teardownAudio() {
     try { if (tap) { tap.port && (tap.port.onmessage = null); tap.onaudioprocess = null; tap.disconnect(); } } catch {}
@@ -661,6 +796,8 @@ registerProcessor("tap",Tap);`;
 
   /* ---------- Deepgram live streaming ---------- */
   let ws = null, keepAlive = 0, retries = 0, everOpened = false, wakeLock = null;
+  let connOffset = 0;      // where in the session the current connection's clock started, in ms
+  const quiet = { since: 0, peak: 0, warned: false };
 
   function termList() {
     const seen = new Set();
@@ -690,25 +827,31 @@ registerProcessor("tap",Tap);`;
       if (ws !== s) return;
       const again = everOpened;
       everOpened = true; retries = 0;
+      connOffset = sessionClock();
       setStatus(state.replay ? "replay" : "live"); clearNotice();
-      if (again) addNote("Reconnected. Speaker numbers may have changed.");
+      if (again) { spkBase = sessionMax + 1; addNote("Reconnected. Speakers are numbered afresh from here."); }
+      logRaw({ type: "connection", offsetMs: Math.round(connOffset), speakerBase: spkBase, options: s.url.split("?")[1] || "" });
       if (state.replay && audioEl) audioEl.play().catch(() => fail("The recording couldn't be played."));
       keepAlive = setInterval(() => { if (s.readyState === 1) s.send(JSON.stringify({ type: "KeepAlive" })); }, 8000);
     };
     s.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch {} };
-    s.onclose = () => {
-      clearInterval(keepAlive);
-      if (ws !== s || !state.running) return;
-      if (state.replay && audioEl) audioEl.pause();
-      if (!everOpened && retries >= 2) {
-        fail("Couldn't connect to Deepgram. Check the API key in Settings and the internet connection.", true);
-        return;
-      }
-      retries++;
-      setStatus("reconnecting");
-      notify("Connection dropped. Reconnecting…");
-      setTimeout(() => { if (state.running && ws === s) connect(); }, Math.min(1000 * 2 ** retries, 10000));
-    };
+    s.onclose = () => lost(s);
+  }
+  function lost(s) {
+    if (ws !== s || !state.running) return;
+    clearInterval(keepAlive);
+    ws = null;
+    try { s.onclose = null; s.onmessage = null; s.close(); } catch {}
+    setInterim([]);
+    if (state.replay && audioEl) audioEl.pause();
+    if (!everOpened && retries >= 2) {
+      fail("Couldn't connect to Deepgram. Check the API key in Settings and the internet connection.", true);
+      return;
+    }
+    retries++;
+    setStatus("reconnecting");
+    notify("Connection dropped. Reconnecting…");
+    setTimeout(() => { if (state.running && !ws) connect(); }, Math.min(1000 * 2 ** retries, 10000));
   }
   function closeSocket() {
     const s = ws; ws = null;
@@ -728,7 +871,13 @@ registerProcessor("tap",Tap);`;
       const words = m.channel?.alternatives?.[0]?.words || [];
       if (m.is_final) {
         setInterim([]);
-        if (words.length) addFinal(words);
+        if (words.length) {
+          logRaw({
+            type: "result", offsetMs: Math.round(connOffset), speakerBase: spkBase, speechFinal: !!m.speech_final,
+            words: words.map((w) => [w.punctuated_word || w.word, Number.isInteger(w.speaker) ? w.speaker : null, w.start, w.end, w.confidence])
+          });
+          addFinal(words);
+        }
         if (m.speech_final) closeLine();
       } else {
         setInterim(words);
@@ -749,8 +898,17 @@ registerProcessor("tap",Tap);`;
   window.addEventListener("pagehide", () => { if (Rec.on) Rec.checkpoint(); });
 
   function begin(replayName) {
-    session = { start: Date.now(), log: [], recorded: false, replay: replayName || "" };
-    everOpened = false; retries = 0;
+    state.names = {}; state.maxSpeaker = 3; renderNames();
+    spkBase = 0; sessionMax = -1;
+    quiet.since = Date.now(); quiet.peak = 0; quiet.warned = false;
+    if (lines.length) addNote("New session. Speakers are numbered afresh.", true);
+    session = { start: Date.now(), log: [], raw: [], names: state.names, recorded: false, replay: replayName || "", tidy: state.tidy };
+    session.raw.push(JSON.stringify({
+      type: "header", build: BUILD, started: new Date(session.start).toISOString(),
+      source: replayName ? `replay of ${replayName}` : "live microphone", tidy: state.tidy,
+      words: "[text, speaker, start seconds, end seconds, confidence]; times count from the connection's offsetMs"
+    }));
+    everOpened = false; retries = 0; connOffset = 0;
   }
   async function start() {
     if (state.busy || state.running) return;
@@ -795,7 +953,8 @@ registerProcessor("tap",Tap);`;
     begin("");
     if (state.saveRec) {
       saved = null; renderSaved();
-      await Rec.begin({ rate: ctx.sampleRate, start: session.start, done: false, gotAudio: false, gotText: false });
+      await Rec.begin({ rate: ctx.sampleRate, start: session.start, done: false, gotAudio: false, gotText: false, tidy: state.tidy });
+      Rec.pushRaw(session.raw[0]);
       session.recorded = true;
       $("#recBadge").hidden = false;
     }
@@ -843,7 +1002,8 @@ registerProcessor("tap",Tap);`;
       await loadSaved(); renderSaved();
       $("#recBadge").hidden = true;
     }
-    lastLog = { entries: s.log, start: s.start, replay: s.replay };
+    lastLog = { entries: s.log, raw: s.raw, names: s.names, start: s.start, replay: s.replay, tidy: s.tidy };
+    spkBase = 0;
     try { wakeLock && wakeLock.release(); } catch {}
     wakeLock = null;
     state.busy = false;
@@ -911,14 +1071,18 @@ registerProcessor("tap",Tap);`;
   }
   function renderNames() {
     const box = $("#names"); box.innerHTML = "";
-    for (let i = 0; i <= Math.min(state.maxSpeaker, 9); i++) {
+    for (let i = 0; i <= Math.min(state.maxSpeaker, 19); i++) {
       const sw = document.createElement("span");
       sw.className = "swatch"; sw.style.background = `var(--s${i % 6})`;
       const inp = document.createElement("input");
       inp.className = "input"; inp.id = "name-" + i; inp.placeholder = `Speaker ${i + 1}`;
       inp.setAttribute("aria-label", `Name for speaker ${i + 1}`);
       inp.value = state.names[i] || "";
-      inp.addEventListener("input", () => { state.names[i] = inp.value; store.set("names", state.names); refreshWhoLabels(); });
+      inp.addEventListener("input", () => {
+        state.names[i] = inp.value;
+        if (session && session.recorded) store.set("recNames", state.names);
+        refreshWhoLabels();
+      });
       box.append(sw, inp);
     }
   }
@@ -974,9 +1138,14 @@ registerProcessor("tap",Tap);`;
   bindSeg("steady", { steadyOff: false, steadyOn: true });
   bindSeg("filter", { filterOn: true, filterOff: false });
   bindSeg("saveRec", { recOff: false, recOn: true });
+  bindSeg("tidy", { tidyOn: true, tidyOff: false });
+  bindSeg("doubt", { doubtOff: false, doubtOn: true }, () => lines.forEach(paint));
+  $("#buildTag").textContent = BUILD;
   $("#dlAudio").addEventListener("click", downloadAudio);
   $("#dlSavedText").addEventListener("click", downloadSavedText);
   $("#dlText").addEventListener("click", downloadText);
+  $("#dlRaw").addEventListener("click", downloadRaw);
+  $("#dlSavedRaw").addEventListener("click", downloadSavedRaw);
   $("#replayFile").addEventListener("change", (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
